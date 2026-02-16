@@ -107,34 +107,36 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push all images (serially)
-        env:
-          REGISTRY: ghcr.io
-          REGISTRY_USER: ${{ github.repository_owner }}
         run: |
+          # Convert GitHub username to lowercase (Docker requires lowercase)
+          GHCR_USER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          
+          echo "🔧 Using GHCR User (lowercase): ${GHCR_USER}"
+          
           # Build images one at a time to avoid resource exhaustion
           # Each image is 12-14GB so parallel builds would fail
 
-          echo "Building cu124-py311..."
-          docker buildx bake --push cu124-py311
+          echo "📦 Building cu124-py311..."
+          REGISTRY=ghcr.io REGISTRY_USER="${GHCR_USER}" docker buildx bake --push cu124-py311
           docker buildx prune -af
           df -h
 
-          echo "Building cu124-py312..."
-          docker buildx bake --push cu124-py312
+          echo "📦 Building cu124-py312..."
+          REGISTRY=ghcr.io REGISTRY_USER="${GHCR_USER}" docker buildx bake --push cu124-py312
           docker buildx prune -af
           df -h
 
-          echo "Building cu128-py311..."
-          docker buildx bake --push cu128-py311
+          echo "📦 Building cu128-py311..."
+          REGISTRY=ghcr.io REGISTRY_USER="${GHCR_USER}" docker buildx bake --push cu128-py311
           docker buildx prune -af
           df -h
 
-          echo "Building cu128-py312..."
-          docker buildx bake --push cu128-py312
+          echo "📦 Building cu128-py312..."
+          REGISTRY=ghcr.io REGISTRY_USER="${GHCR_USER}" docker buildx bake --push cu128-py312
           docker buildx prune -af
           df -h
 
-          echo "All images built successfully!"
+          echo "✅ All images built successfully!"
 
       - name: List built images
         id: list-images
@@ -142,7 +144,8 @@ jobs:
           RELEASE="${{ needs.detect-changes.outputs.release }}"
           RELEASE_SUFFIX="${{ needs.detect-changes.outputs.release_suffix }}"
           REGISTRY="ghcr.io"
-          REGISTRY_USER="${{ github.repository_owner }}"
+          # Convert to lowercase
+          REGISTRY_USER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
           APP="comfyui"
 
           # Create array of images
