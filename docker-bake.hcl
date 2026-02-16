@@ -3,7 +3,7 @@ variable "REGISTRY" {
 }
 
 variable "REGISTRY_USER" {
-    default = "nathanig"  # ← Remplace par ton username Docker Hub
+    default = "nathanig"
 }
 
 variable "APP" {
@@ -49,10 +49,7 @@ group "all" {
 
 target "cu124-py311" {
     dockerfile = "Dockerfile"
-    tags = [
-        "${REGISTRY}/${REGISTRY_USER}/${APP}:cu124-py311-${RELEASE}${RELEASE_SUFFIX}",
-        "${REGISTRY}/${REGISTRY_USER}/${APP}:cu124-py311-latest"
-    ]
+    tags = ["${REGISTRY}/${REGISTRY_USER}/${APP}:cu124-py311-${RELEASE}${RELEASE_SUFFIX}"]
     args = {
         RELEASE                    = "${RELEASE}"
         BASE_IMAGE                 = "${BASE_IMAGE_REPOSITORY}:${BASE_IMAGE_VERSION}-python3.11-cuda12.4.1-torch2.6.0"
@@ -68,10 +65,7 @@ target "cu124-py311" {
 
 target "cu124-py312" {
     dockerfile = "Dockerfile"
-    tags = [
-        "${REGISTRY}/${REGISTRY_USER}/${APP}:cu124-py312-${RELEASE}${RELEASE_SUFFIX}",
-        "${REGISTRY}/${REGISTRY_USER}/${APP}:cu124-py312-latest"
-    ]
+    tags = ["${REGISTRY}/${REGISTRY_USER}/${APP}:cu124-py312-${RELEASE}${RELEASE_SUFFIX}"]
     args = {
         RELEASE                    = "${RELEASE}"
         BASE_IMAGE                 = "${BASE_IMAGE_REPOSITORY}:${BASE_IMAGE_VERSION}-python3.12-cuda12.4.1-torch2.6.0"
@@ -87,10 +81,7 @@ target "cu124-py312" {
 
 target "cu128-py311" {
     dockerfile = "Dockerfile"
-    tags = [
-        "${REGISTRY}/${REGISTRY_USER}/${APP}:cu128-py311-${RELEASE}${RELEASE_SUFFIX}",
-        "${REGISTRY}/${REGISTRY_USER}/${APP}:cu128-py311-latest"
-    ]
+    tags = ["${REGISTRY}/${REGISTRY_USER}/${APP}:cu128-py311-${RELEASE}${RELEASE_SUFFIX}"]
     args = {
         RELEASE                    = "${RELEASE}"
         BASE_IMAGE                 = "${BASE_IMAGE_REPOSITORY}:${BASE_IMAGE_VERSION}-python3.11-cuda12.8.1-torch2.10.0"
@@ -105,10 +96,7 @@ target "cu128-py311" {
 
 target "cu128-py312" {
     dockerfile = "Dockerfile"
-    tags = [
-        "${REGISTRY}/${REGISTRY_USER}/${APP}:cu128-py312-${RELEASE}${RELEASE_SUFFIX}",
-        "${REGISTRY}/${REGISTRY_USER}/${APP}:cu128-py312-latest"
-    ]
+    tags = ["${REGISTRY}/${REGISTRY_USER}/${APP}:cu128-py312-${RELEASE}${RELEASE_SUFFIX}"]
     args = {
         RELEASE                    = "${RELEASE}"
         BASE_IMAGE                 = "${BASE_IMAGE_REPOSITORY}:${BASE_IMAGE_VERSION}-python3.12-cuda12.8.1-torch2.10.0"
