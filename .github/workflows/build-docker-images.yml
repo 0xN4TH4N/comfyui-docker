@@ -34,23 +34,17 @@ jobs:
       - name: Check if RELEASE or RELEASE_SUFFIX changed
         id: check
         run: |
-          # For manual triggers, always build
           if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
             echo "should_build=true" >> $GITHUB_OUTPUT
             echo "Manual trigger - will build"
             exit 0
           fi
 
-          # Check if docker-bake.hcl was modified
-          # Get the diff with context to see which variable blocks changed
           git diff -U3 HEAD^ HEAD docker-bake.hcl > /tmp/diff.txt
-
-          # Display the diff for debugging
           echo "=== Diff of docker-bake.hcl ==="
           cat /tmp/diff.txt
           echo "================================"
 
-          # Extract the current and previous values
           PREV_RELEASE=$(git show HEAD^:docker-bake.hcl | grep -A 2 'variable "RELEASE"' | grep 'default' | sed 's/.*"\(.*\)"/\1/')
           PREV_RELEASE_SUFFIX=$(git show HEAD^:docker-bake.hcl | grep -A 2 'variable "RELEASE_SUFFIX"' | grep 'default' | sed 's/.*"\(.*\)"/\1/')
           CURR_RELEASE="${{ steps.extract.outputs.release }}"
@@ -79,6 +73,7 @@ jobs:
     outputs:
       images: ${{ steps.list-images.outputs.images }}
       images_json: ${{ steps.list-images.outputs.images_json }}
+      dockerhub_images: ${{ steps.list-images.outputs.dockerhub_images }}
 
     steps:
       - name: Checkout code
@@ -99,6 +94,14 @@ jobs:
             network=host
           buildkitd-flags: --debug
 
+      # 🆕 Login to Docker Hub
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_PASSWORD }}
+
+      # Login to GitHub Container Registry (keep existing)
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
@@ -106,86 +109,115 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # 🆕 Build and push to BOTH registries
       - name: Build and push all images (serially)
         env:
-          REGISTRY: ghcr.io
-          REGISTRY_USER: ${{ github.repository_owner }}
+          GHCR_REGISTRY: ghcr.io
+          GHCR_USER: ${{ github.repository_owner }}
+          DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USERNAME }}
         run: |
-          # Build images one at a time to avoid resource exhaustion
-          # Each image is 12-14GB so parallel builds would fail
+          # Function to build and push to both registries
+          build_and_push() {
+            local target=$1
+            echo "Building ${target}..."
+            
+            # Build and push to GHCR
+            REGISTRY=ghcr.io REGISTRY_USER="${GHCR_USER}" docker buildx bake --push ${target}
+            
+            # Tag and push to Docker Hub
+            RELEASE="${{ needs.detect-changes.outputs.release }}"
+            RELEASE_SUFFIX="${{ needs.detect-changes.outputs.release_suffix }}"
+            GHCR_IMAGE="ghcr.io/${GHCR_USER}/comfyui:${target}-${RELEASE}${RELEASE_SUFFIX}"
+            DOCKERHUB_IMAGE="${DOCKERHUB_USER}/comfyui:${target}-${RELEASE}${RELEASE_SUFFIX}"
+            DOCKERHUB_LATEST="${DOCKERHUB_USER}/comfyui:${target}-latest"
+            
+            docker pull ${GHCR_IMAGE}
+            docker tag ${GHCR_IMAGE} ${DOCKERHUB_IMAGE}
+            docker tag ${GHCR_IMAGE} ${DOCKERHUB_LATEST}
+            docker push ${DOCKERHUB_IMAGE}
+            docker push ${DOCKERHUB_LATEST}
+            
+            # Cleanup
+            docker buildx prune -af
+            df -h
+          }
 
-          echo "Building cu124-py311..."
-          docker buildx bake --push cu124-py311
-          docker buildx prune -af
-          df -h
+          # Build each variant
+          build_and_push "cu124-py311"
+          build_and_push "cu124-py312"
+          build_and_push "cu128-py311"
+          build_and_push "cu128-py312"
 
-          echo "Building cu124-py312..."
-          docker buildx bake --push cu124-py312
-          docker buildx prune -af
-          df -h
-
-          echo "Building cu128-py311..."
-          docker buildx bake --push cu128-py311
-          docker buildx prune -af
-          df -h
-
-          echo "Building cu128-py312..."
-          docker buildx bake --push cu128-py312
-          docker buildx prune -af
-          df -h
-
-          echo "All images built successfully!"
+          echo "All images built and pushed successfully!"
 
       - name: List built images
         id: list-images
         run: |
           RELEASE="${{ needs.detect-changes.outputs.release }}"
           RELEASE_SUFFIX="${{ needs.detect-changes.outputs.release_suffix }}"
-          REGISTRY="ghcr.io"
-          REGISTRY_USER="${{ github.repository_owner }}"
+          GHCR_USER="${{ github.repository_owner }}"
+          DOCKERHUB_USER="${{ secrets.DOCKERHUB_USERNAME }}"
           APP="comfyui"
 
-          # Create array of images
-          IMAGES=(
-            "${REGISTRY}/${REGISTRY_USER}/${APP}:cu124-py311-${RELEASE}${RELEASE_SUFFIX}"
-            "${REGISTRY}/${REGISTRY_USER}/${APP}:cu124-py312-${RELEASE}${RELEASE_SUFFIX}"
-            "${REGISTRY}/${REGISTRY_USER}/${APP}:cu128-py311-${RELEASE}${RELEASE_SUFFIX}"
-            "${REGISTRY}/${REGISTRY_USER}/${APP}:cu128-py312-${RELEASE}${RELEASE_SUFFIX}"
+          # GHCR images
+          GHCR_IMAGES=(
+            "ghcr.io/${GHCR_USER}/${APP}:cu124-py311-${RELEASE}${RELEASE_SUFFIX}"
+            "ghcr.io/${GHCR_USER}/${APP}:cu124-py312-${RELEASE}${RELEASE_SUFFIX}"
+            "ghcr.io/${GHCR_USER}/${APP}:cu128-py311-${RELEASE}${RELEASE_SUFFIX}"
+            "ghcr.io/${GHCR_USER}/${APP}:cu128-py312-${RELEASE}${RELEASE_SUFFIX}"
           )
 
-          # Create newline-separated list
-          IMAGES_LIST=$(printf '%s\n' "${IMAGES[@]}")
+          # Docker Hub images
+          DOCKERHUB_IMAGES=(
+            "${DOCKERHUB_USER}/${APP}:cu124-py311-${RELEASE}${RELEASE_SUFFIX}"
+            "${DOCKERHUB_USER}/${APP}:cu124-py311-latest"
+            "${DOCKERHUB_USER}/${APP}:cu124-py312-${RELEASE}${RELEASE_SUFFIX}"
+            "${DOCKERHUB_USER}/${APP}:cu124-py312-latest"
+            "${DOCKERHUB_USER}/${APP}:cu128-py311-${RELEASE}${RELEASE_SUFFIX}"
+            "${DOCKERHUB_USER}/${APP}:cu128-py311-latest"
+            "${DOCKERHUB_USER}/${APP}:cu128-py312-${RELEASE}${RELEASE_SUFFIX}"
+            "${DOCKERHUB_USER}/${APP}:cu128-py312-latest"
+          )
 
-          # Create JSON array for easier parsing by third-party tools
-          IMAGES_JSON=$(printf '%s\n' "${IMAGES[@]}" | jq -R -s -c 'split("\n") | map(select(length > 0))')
+          # Create outputs
+          GHCR_LIST=$(printf '%s\n' "${GHCR_IMAGES[@]}")
+          DOCKERHUB_LIST=$(printf '%s\n' "${DOCKERHUB_IMAGES[@]}")
+          GHCR_JSON=$(printf '%s\n' "${GHCR_IMAGES[@]}" | jq -R -s -c 'split("\n") | map(select(length > 0))')
+          DOCKERHUB_JSON=$(printf '%s\n' "${DOCKERHUB_IMAGES[@]}" | jq -R -s -c 'split("\n") | map(select(length > 0))')
 
-          # Output for GitHub Actions
           echo "images<<EOF" >> $GITHUB_OUTPUT
-          echo "$IMAGES_LIST" >> $GITHUB_OUTPUT
+          echo "$GHCR_LIST" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
-          echo "images_json=${IMAGES_JSON}" >> $GITHUB_OUTPUT
+          echo "dockerhub_images<<EOF" >> $GITHUB_OUTPUT
+          echo "$DOCKERHUB_LIST" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
 
-          # Also write to a file that can be downloaded
-          echo "$IMAGES_LIST" > built-images.txt
-          echo "$IMAGES_JSON" > built-images.json
+          echo "images_json=${GHCR_JSON}" >> $GITHUB_OUTPUT
+          echo "dockerhub_images_json=${DOCKERHUB_JSON}" >> $GITHUB_OUTPUT
+
+          # Write to files
+          echo "$GHCR_LIST" > built-images-ghcr.txt
+          echo "$DOCKERHUB_LIST" > built-images-dockerhub.txt
+          echo "$GHCR_JSON" > built-images-ghcr.json
+          echo "$DOCKERHUB_JSON" > built-images-dockerhub.json
 
       - name: Upload image list artifacts
         uses: actions/upload-artifact@v4
         with:
           name: docker-images-list
           path: |
-            built-images.txt
-            built-images.json
+            built-images-*.txt
+            built-images-*.json
           retention-days: 90
 
       - name: Display built images
         run: |
-          echo "Successfully built and pushed the following images:"
-          cat built-images.txt
+          echo "=== GitHub Container Registry ==="
+          cat built-images-ghcr.txt
           echo ""
-          echo "JSON format:"
-          cat built-images.json
+          echo "=== Docker Hub ==="
+          cat built-images-dockerhub.txt
 
   create-summary:
     needs: [detect-changes, build-and-push]
@@ -198,14 +230,17 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Release:** ${{ needs.detect-changes.outputs.release }}${{ needs.detect-changes.outputs.release_suffix }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Images Pushed to GitHub Container Registry:" >> $GITHUB_STEP_SUMMARY
+          
+          echo "### 📦 GitHub Container Registry:" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
           echo "${{ needs.build-and-push.outputs.images }}" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### JSON Format (for APIs):" >> $GITHUB_STEP_SUMMARY
-          echo '```json' >> $GITHUB_STEP_SUMMARY
-          echo '${{ needs.build-and-push.outputs.images_json }}' | jq '.' >> $GITHUB_STEP_SUMMARY
+          
+          echo "### 🐳 Docker Hub:" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "${{ needs.build-and-push.outputs.dockerhub_images }}" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "📦 Download the image list from the artifacts section above." >> $GITHUB_STEP_SUMMARY
+          
+          echo "📥 Download the complete image list from the artifacts section above." >> $GITHUB_STEP_SUMMARY
